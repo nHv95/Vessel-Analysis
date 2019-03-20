@@ -1,0 +1,109 @@
+/*
+This macro uses a set of stacks containing voxels from solid vessel masks and classified as belonging to a defined vascular cross-section, to intersect signals from an original binary angioarchitecture and decomposing it into a set of stacks with caliber signal voxels.   
+The macro needs two input folders and can work only with strictly equal numbers of masks and angioarchitectures. It verifies the correspondence of the name of the original stack with the name of the caliber masks and abort the macro if something is wrong. 
+
+Version hystory:
+v. 0.1 released 26.05.2011 first relase
+
+*/
+
+macro "Crea BandPass" {bandpassa();}
+
+function bandpassa() {
+	requires("1.42l");
+
+	setBatchMode(true);
+
+// Date setup
+
+	getDateAndTime(year, month, week, day, hour, minu, sec, msec);	mese = month+1;
+
+// Choice of the folder containing the original binary volumes da decompose in stacks of caliber voxels
+
+	showMessage("Select the folder containing the original volumes to decompose");
+	dir1 = getDirectory("Select");
+	list = getFileList(dir1);
+
+	showMessage("Select the folder containing folders with the appropriated caliber masks");
+	dir3 = getDirectory("Select");
+	masklist = getFileList(dir3);
+
+// Choice of the folder in which to save the subfolders with the caliber stacks of the decomposed images.
+
+	showMessage("Where should I save the decomposed volumes?");
+	dir2 = getDirectory("Select");
+
+// Congruence control about the numbers of masks and volumes
+
+	if (list.length != masklist.length) {
+		exit("The number of the volume is different from the number of the subfolders with the masks!");
+	}
+
+	for (kj=0; kj<list.length; kj++) {
+
+// Opens the input folder
+
+		open(dir1+list[kj]);
+		TitleVol = getTitle();
+
+		showProgress(kj/list.length);
+
+// Creates the target folder
+
+		titolo = split(TitleVol,".");
+		testtit = titolo[0];
+		savedir = dir2+titolo[0];
+		File.makeDirectory(savedir);
+
+// Opens the folder of the corresponding masks
+
+	    	if (endsWith(masklist[kj], "/")) {
+	    		subdir = dir3+masklist[kj];
+		 	pretit = File.getName(subdir);
+			restit = substring(pretit,5);
+			fintitre = split(restit,".");
+			fintit = fintitre[0];
+			sublist = getFileList(subdir);	
+
+// Congruence control on the names of each volume with the names of the subfolder containing the appropriate masks
+
+			if (testtit != fintit) {
+				exit("Macro tries to elaborate "+testtit+" using masks from "+fintit+" !!");
+			}
+			
+// Cycle on files present in the mask subfolder
+
+			for (st=0; st<sublist.length; st++) {
+				open(subdir+sublist[st]);
+				TitleMask = getTitle();
+
+				imageCalculator("AND create stack", TitleVol, TitleMask);
+				selectWindow("Result of "+ TitleVol);
+
+// Saving each intersected stack 
+
+				save(savedir+File.separator+TitleMask);
+				close();
+
+// Closing the mask image
+
+				selectWindow(TitleMask);
+ 				close();
+			}
+		}
+
+// Closing the original volume
+
+		selectWindow(TitleVol);
+ 		close();
+
+// End of main cycle
+
+	}
+	
+// End of the macro
+
+	setBatchMode(false);
+
+	showMessage("End of Elaboration");
+}

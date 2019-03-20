@@ -1,0 +1,288 @@
+/*
+Analytical routine for volume filtering using ImageJ Analyze Particles fuction. The macro isolates and recover voxels belonging to particles with area lower than a defined threshold in each of the 3 Cartesian planes passing through the voxel. It starts from a cubic image stack. If the original volume is not a cube, but shows a square base, it is converted into a cube by addition of an appropriate number of slices at the bottom of the stack. These slices are eliminated at the end of the elaboration.
+If the original volume is taller than a cube, the routine dilate the canvas of each slice, keeping the image centered, until the volume represents a cube. The modified volume is then reconverted to the original dimensions by cropping at the end of the elaboration.
+The macro is dependent from the TransfomJ sets of plugins developed by Meijering J. [https://imagescience.org/meijering/software/transformj/]
+
+The routine filters one or more stacks using user-defined thresholds. For each input stack it generates a set of 7 stacks grouping the desired bandpass voxels. Voxels belonging to particles larger than the largest threshold are not considered and therefore discarded. 
+Thresholds are defined as it follows:
+the lowest threshold is called "offset" and can be choosen among 5 dimensions (in square pixels). It identify the lowest class of calibers, those showing a cross-section comprised between "offset" and 0 square pixels.
+the second threshold is a multiple of "offset". This multiple can be choosen among 6 choices ranging from 1.5 to 2.0 values. 
+similarly, each of the following thresholds will be the choosen multiple of the previous one.    
+
+v. 0.1.0 date 24.12.2010 first version, cube-only analyses
+v. 0.2.0 date 30.12.2010 analysis of volumes smaller than cubes but presenting a square base. 
+v. 0.3.0 date 08.02.2011 after the filtering steps, the routine creates the bandpass stacks grouping 3D caliber-filtered particles on the basis of pre-defined thresholds. 
+v. 0.4.0 date 28.07.2017 bandpass stacks are now created according to user-defined thresholds 
+v. 0.5.0 date 04.05.2018 this version elaborates also original stacks taller than a cube.
+
+*/
+
+macro "Build preCaliber" {volfilter();}
+
+function volfilter() {
+	requires("1.42l");
+
+// Parameter setup through a dialog interface 
+
+	dataoffset = newArray("4","8","16","32","64");
+	listaserie = newArray("1.5","1.6","1.7","1.8","1.9","2.0");
+	Dialog.create("Setup");
+	Dialog.addMessage("DIMENSIONAL FILTERING OF CUBIC VOLUMES\nPlease define the appropriate set of thresholds");
+	Dialog.addMessage("\n");
+	Dialog.addMessage("Lowest threshold (offset): ")+Dialog.addChoice("          ",dataoffset)+"\n";
+	Dialog.addMessage("Thresholds will be based on: ")+Dialog.addChoice("          ",listaserie)+" multiples\n";
+	Dialog.show();
+
+	if(isOpen("Log")){
+		selectWindow("Log");
+		run("Close");
+	}
+
+	inizio = Dialog.getChoice();
+	multi = Dialog.getChoice();
+
+// Calculus of threshold 
+
+	ini = parseInt(inizio);
+	mul = parseFloat(multi);
+	prosoglia = newArray(7);
+	prosoglia[0] = ini;
+	prosoglia[1] = round(ini*mul);
+	prosoglia[2] = round(ini*mul*mul);
+	prosoglia[3] = round(ini*mul*mul*mul);
+	prosoglia[4] = round(ini*mul*mul*mul*mul);
+	prosoglia[5] = round(ini*mul*mul*mul*mul*mul);
+	prosoglia[6] = round(ini*mul*mul*mul*mul*mul*mul);
+	lett = newArray("a","b","c","d","e","f","g");
+
+	mus = (ini+mul)*10;
+	scelta = toString(mus);
+
+// Date setup 
+
+	getDateAndTime(year, month, week, day, hour, minu, sec, msec);
+	mese = month+1;
+	
+// Choice of the folder grouping volumes to be analyzed
+
+	showMessage("Select the folder grouping input volumes");
+	dir1 = getDirectory("Select");
+ 	dirtit = File.getName(dir1);
+	list = getFileList(dir1);
+
+// Choice of the folder where to save the filtered stacks
+
+	showMessage("Where should I save the filtered stacks?");
+	dir2 = getDirectory("Select output");
+
+// OK, let's go!
+
+	setBatchMode(true);
+
+	for (st=0; st<list.length; st++) {
+		percorso = dir1+list[st];
+		open(percorso);
+		showProgress(st/list.length);
+		inTitle = getTitle();
+
+// We need to set to zero the variable defining the pair/unpair status of the stack
+
+		dsp=0;
+
+// Checks the number of slices of the stack and if the image is not a stack, halts the macro. 
+    
+		DimZ = nSlices();
+		if (DimZ == 1) {
+    			exit("The selected image is not a stack!");
+    		}
+		hDimZ = floor(DimZ/2);
+
+// Checks that the selected stack represent a cubic volume, or a volume with a square base and with a pair number of slices. If the number of slices is unpair it is converted to pair by deletion of the first slice of the volume. If the selected stack has no square base, the macro exits.
+
+		setSlice(1);
+		DimX = getWidth();
+		DimY = getHeight();
+		DeltaL = DimX-DimZ;
+		if (DimX != DimY) {
+			exit("The selected volume has no square base!");
+		}
+		if (hDimZ*2 != DimZ) {
+			setSlice(1);
+			run("Delete Slice");
+			DimZ = nSlices();
+			hDimZ = floor(DimZ/2);
+			DeltaL++;
+			dsp=1;
+		}
+
+// If the volume is lower than a cube it is converted to it by slice addition
+
+		if (DimX > DimZ) {
+			setSlice(DimZ);
+			for (i=0; i<DeltaL; i++) {
+				run("Add Slice");
+			}
+		}
+
+// If the volume is taller than a cube, the canvas of each slice is enflated accordingly 
+
+		else {
+			if (DimX < DimZ) {
+				run("Canvas Size...", "width="+DimZ+" height="+DimZ+" position=Center zero");
+			}
+		}
+
+// We define 3 new stacks plus 3 service stacks for filtered data
+
+		titolo = split(inTitle,"-");
+		show = newArray(3);
+		ftit = newArray(3);
+		show[0] = titolo[0]+"-Z.tif";
+		show[1] = titolo[0]+"-Y.tif";
+		show[2] = titolo[0]+"-X.tif";
+		ftit[0] = "Filt"+show[0];
+		ftit[1] = "Filt"+show[1];
+		ftit[2] = "Filt"+show[2];
+
+// The original stack is duplicated and rotated by 90 degrees around the Y axis. This step is repeated for the X axis to get 3 stacks.
+
+		selectWindow(inTitle);
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=90.0 x-angle=0.0 interpolation=linear background=0.0 adjust");
+   		rename(show[1]);
+
+		selectWindow(inTitle);
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=0.0 x-angle=90.0 interpolation=linear background=0.0 adjust");
+   		rename(show[2]);
+
+		selectWindow(inTitle);
+   		rename(show[0]);
+
+// Now we create the folder that will group the filtered images
+
+		File.makeDirectory(dir2+titolo[0]);
+
+// Filtering cycle for every defined threshold
+
+		for(sg=0; sg<prosoglia.length; sg++) {
+
+// Setup of the actual filtration threshold
+
+			sogliaX = prosoglia[sg];
+
+// The macro perform the filtering on the 3 axes. Filtered masks belonging to rotated images are reversed to the original orientation.
+
+			selectWindow(show[0]);
+			run("Analyze Particles...", "size="+sogliaX+"-Infinity circularity=0.00-1.00 show=Masks clear stack");
+			selectWindow("Mask of "+show[0]);
+   			rename(ftit[0]);
+
+			selectWindow(show[1]);
+			run("Analyze Particles...", "size="+sogliaX+"-Infinity circularity=0.00-1.00 show=Masks clear stack");
+			selectWindow("Mask of "+show[1]);
+			run("TransformJ Rotate", "z-angle=0.0 y-angle=-90.0 x-angle=0.0 interpolation=linear background=0.0 adjust");
+  	 		rename(ftit[1]);
+			selectWindow("Mask of "+show[1]);
+			close();
+
+			selectWindow(show[2]);
+			run("Analyze Particles...", "size="+sogliaX+"-Infinity circularity=0.00-1.00 show=Masks clear stack");
+			selectWindow("Mask of "+show[2]);
+			run("TransformJ Rotate", "z-angle=0.0 y-angle=0.0 x-angle=-90.0 interpolation=linear background=0.0 adjust");
+ 	  		rename(ftit[2]);
+			selectWindow("Mask of "+show[2]);
+			close();
+
+// To end the procedure the macro intersects the 3 filtered stacks into a final one
+
+			imageCalculator("AND create stack", ftit[0], ftit[1]);
+			imageCalculator("AND create stack", "Result of "+ftit[0], ftit[2]);
+			selectWindow("Result of Result of "+ftit[0]);
+
+// If it is necessary, this code removes the added slices
+
+			if (DeltaL>0) {
+				setSlice(DimX);
+				if(dsp==1){
+					DeltaL=DeltaL-1;
+					dsp=0;
+				}
+				for (i=0; i<DeltaL; i++) {
+					run("Delete Slice");
+				}			
+			}
+			else {
+				if (DeltaL<0) {
+					setSlice(1);
+					run("Specify...", "width="+DimX+" height="+DimY+" x="+hDimZ+" y="+hDimZ+" slice=1 centered");
+					run("Crop");
+				}
+			}
+
+// The resulting filtered stack, an intermediate result, is saved
+
+			save(dir2+titolo[0]+File.separator+"R"+sogliaX+inTitle);
+			close();
+
+// Clean-up of residual images
+
+			selectWindow("Result of "+ftit[0]);
+ 			close();
+
+			for (i=0; i<3; i++) {
+				selectWindow(ftit[i]);
+ 				close();
+ 			}
+		}
+
+// Closing of the additional rotated images duplicated from the original
+
+		for (i=0; i<3; i++) {
+			selectWindow(show[i]);
+ 			close();
+ 		}
+
+// Creation and registration of bandpass images showing caliber-filtered signals
+
+// Now the macro creates the folder that will group caliber-filtered images
+
+		File.makeDirectory(dir2+"bp"+scelta+titolo[0]);
+
+// Here, it opens the first image and subtracts the second from it. The procedure is reiterated on all images 2 by 2.
+
+		titre = newArray(2);
+		open(percorso);
+		titre[0] = getTitle();
+
+		soglia=newArray(7);
+		soglia[0]="0-"+toString(prosoglia[0]);
+		for(ia=1;ia<7;ia++){
+			soglia[ia]=toString(prosoglia[ia-1])+"-"+toString(prosoglia[ia]);
+		}
+
+		for(sg=0; sg<prosoglia.length; sg++) {
+			open(dir2+titolo[0]+File.separator+"R"+prosoglia[sg]+inTitle);
+			titre[1] = getTitle();
+			
+			imageCalculator("Subtract create stack", titre[0], titre[1]);
+
+			selectWindow(titre[0]);
+			close();
+			selectWindow("Result of "+titre[0]);
+			save(dir2+"bp"+scelta+titolo[0]+File.separator+lett[sg]+"-"+soglia[sg]+inTitle);
+			close();
+
+			titre[0] = titre[1];
+		}
+
+		selectWindow(titre[0]);
+		close();
+
+	}
+
+// End of the routine
+
+	setBatchMode(false);
+
+	showMessage("End of Elaboration");
+}
+

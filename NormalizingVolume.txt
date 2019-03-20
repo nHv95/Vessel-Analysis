@@ -1,0 +1,124 @@
+/*
+This macro performs the assessment of the percent volume occupied by signal (black voxels) in a binary volume
+
+Version hystory:
+v. 0.1 del 21.11.2010
+v. 0.2 del 08.01.2011 version for independent samples 
+v. 0.3 del 19.12.2018 version corrected for images with measured sizes
+
+*/
+
+macro "Percent volumes" {volocc();}
+
+function volocc() {
+	requires("1.35b");
+
+ 	setBatchMode(true);
+
+// Date setup 
+
+	getDateAndTime(year, month, week, day, hour, minu, sec, msec);	
+	mese = month+1;
+	
+// Choice of the source directory
+
+	showMessage("Select the folder containing subfolders with the \nprogressively reconstituted angioarchitectures");
+ 	dir1 = getDirectory("Select");
+	showMessage("Where should I save the resulting files?");
+	dir2 = getDirectory("Select");
+
+ 	list = getFileList(dir1);	
+	for (kj=0; kj<list.length; kj++) {
+    		subdir = dir1+list[kj];
+		restit = File.getName(subdir);
+
+		showProgress(kj/list.length);
+
+// open the Vol% result file
+
+		timeline = "Start of elaboration at: "+hour+":"+minu+":"+sec+"\n";
+		results=File.open(dir2+restit+".txt");
+		Identificativo = "Percent occupied volume\n";
+		firstline = "Used Macro: NormalizingVolume.txt v. 0.3 del 08-01-2011\n\nAnalized folder: "+dir1+"\n\n";
+		print(results, Identificativo);
+		print(results, firstline);	
+
+// Definizione variabili
+
+		Norm = false;
+		N = 0.00;
+		Ntmp = 0.00;
+		Cube = NaN;
+
+		sublist = getFileList(subdir);	
+
+// Here the macro verifies that dimensions of all the stacks are equal to that of the first stack. Otherwise it stops the macro.
+
+		for (i=0; i<sublist.length; i++) {
+			open(subdir+sublist[i]);
+
+			titolo = getTitle();
+			setSlice(1);
+		
+			if (i==0) {
+				DimX = getWidth();
+				DimY = getHeight();
+				strati = nSlices();
+			}
+			NewDimX = getWidth();
+			NewDimY = getHeight();
+			if (DimX != NewDimX) {
+				exit("Not all the stacks have the same width!");
+			}
+			if (DimY != NewDimY) {
+				exit("Not all the stacks have the same heigth!");
+			}
+			close();
+		}    	
+		
+// Here the macro assess the percent occupied volume of each stack and find that with the largest value. 
+
+ 		for (j=0; j<sublist.length; j++) {
+			open(subdir+sublist[j]);
+		
+ 		  	Vsgn = 0;
+   			Vtot = 0;
+			for (s=1; s< strati+1; s++) {
+				setSlice(s);
+				getStatistics(area, mean, min, max, std, histogram);		
+				Vsgn = Vsgn+histogram[255];
+			}
+			Vtot = DimX*DimY*strati;
+			Ntmp = 100*Vsgn/Vtot;
+
+			if (Ntmp > N) {
+				N = Ntmp;
+				Cube = j;
+				Norm = true;
+			}
+			close();
+			CubeInfo =  sublist[j]+"\t"+Ntmp+"\n";
+			print(results, CubeInfo);
+		}
+	
+// Write on file the information relative to the stack with the largest value which correspond to the normalizing stack for this group of stacks.
+
+		NormInfo = "\nNormalizing Vol %: \t"+N+"\trelated to volume:\t"+sublist[Cube]+"\n\n";
+		print(results, NormInfo);
+
+// Closing the result file
+
+		getDateAndTime(year, month, week, day, ora, minuto, secondo, msec);	
+		mese = month+1;
+		lastline = "End of analysis at: "+ora+":"+minuto+":"+secondo+"\n";
+		print(results, lastline);	
+		File.close(results);
+	}	
+	
+// Closing the macro
+
+	setBatchMode(false);
+
+	showMessage("End of Elaboration");
+}
+

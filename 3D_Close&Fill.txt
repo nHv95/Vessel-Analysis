@@ -1,0 +1,584 @@
+/*
+This macro tries to transform hollow vessels in solid pipes in 3 steps:
+1. This macro will try to close holes in the vessel wall dilating and eroding the image by 3D convolution with cross or square kernels according to a number of cycles defined in the Dialog window.
+2. Then the macro will execute the ImageJ command "Fill Holes" for every slice in the 3 cartesian orientation of the stack.
+3. To avoid filling intervascular spaces, the added areas will be classified according to an user defined threshold and those larger than the threshold will be discarded.
+
+This macro works on .tiff stacks grouped in a folder.
+
+Version hystory:
+v. 0.1 released 09.05.2011 first relase
+v. 0.2 released 09.05.2011 rewritten to introduce functions
+v. 0.3 released 10-05-2011 after the first fill holes it performs a second passage in order to fill additional cavities created by the first fill-up. 
+
+*/
+
+macro "Volume Halo" {halo();}
+
+function halo() {
+	requires("1.35b");
+
+ 	setBatchMode(true);
+
+	cicli = 2;
+	suplim = 1200;
+
+// Parameter setup by dialog 
+
+	Dialog.create("Setup");
+	Dialog.addNumber("Number of dilation-\t \nerosion cycles: ", cicli);
+	Dialog.addMessage("\n")                                                         ;
+	Dialog.addNumber("                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             \nMax limit of filled areas: ", suplim);
+	Dialog.show();
+	cicli = Dialog.getNumber();
+	suplim = Dialog.getNumber();
+
+// Input of source and target directories
+
+	showMessage("Select the folder grouping all the binary stacks with empty vessels to fill-in");
+ 	dir1 = getDirectory("Select");
+	showMessage("Select the folder where you want to collect the filled vessels");
+	dir2 = getDirectory("Select");
+	File.makeDirectory(dir2+"closed");
+	File.makeDirectory(dir2+"filled");
+	File.makeDirectory(dir2+"Final");
+
+	list = getFileList(dir1);	
+
+// Creates the first directory in the result folder
+
+	File.makeDirectory(dir2+"closed");
+
+// Variable definition
+
+	Norm = false;
+	N = 0.00;
+	Ntmp = 0.00;
+	Cube = NaN;
+
+
+// Start of the dilation cycle on all volumes one after the other 
+
+	for (j=0; j<list.length; j++) {
+
+// Initialization of VP (percent volume) array and variables
+		
+		VP = newArray(510);
+		Array.fill(VP,100.00);
+		VolPerc = 0.00;
+		Vtot = 0;
+		Vini = 0;
+		r = 0;
+		c = 0;
+		Hv1 = false;
+		Hv2 = false;
+		Hv3 = false;
+		Hv4 = false;
+		Hv90 = 0.00;
+		Hv95 = 0.00;
+		Hv99 = 0.00;
+		HvN = 0.00;
+		nHv90 = 0.00;
+		nHv95 = 0.00;
+		nHv99 = 0.00;
+		
+// Triplication of the source stack. An additional input (duplicated) and the output (void).
+
+		open(dir1+list[j]);
+		tit = getTitle();
+		
+		DimX = getWidth();
+		DimY = getHeight();
+		strati = nSlices();
+
+		selectWindow(tit);
+		run("Duplicate...", "title=PariDil.tif duplicate range=1-"+strati);
+		
+		newImage("DispDil.tif", "8-bit", DimX, DimY, strati);
+
+		run("Invert LUT");
+		run("Invert", "stack");
+		
+// Closing the original input volume
+
+		selectWindow(tit);
+		close();
+				
+// Creation of a void slice to be used for out of stack dilations over and under the volume
+
+		selectWindow("PariDil.tif");
+		if (c==0) {
+			run("Duplicate...", "title=void.tif");
+			run("Select All");
+			run("Clear");
+			run("Select None");
+		}
+
+// Cycle for volume dilation according to the required number of cycles
+
+		for (dil=0; dil<cicli; dil++) {				
+			r++;
+			if (r>1) {
+				r = 0;
+			}
+		
+// Initialization variables
+
+			V = newArray(strati+10);
+			Array.fill(V,0.00);
+
+// Cycle on every slice of the volume
+
+			for (i=1; i<strati+1; i++) {
+				showProgress(j, list.length);
+	    			h=i-1;
+	   		 	l=i+1;
+
+// Select slice i-th and duplicates/rename it
+
+				selectWindow("PariDil.tif");
+   			 	setSlice(i);
+				run("Duplicate...", "title=actual.tif");
+
+// Open images in slices i-1 e i+1. If they are outside the volume uses the created void images.
+
+				if (h > 0) {
+					selectWindow("PariDil.tif");
+					setSlice(h);
+					run("Duplicate...", "title=top.tif");
+				}
+				else {
+					selectWindow("void.tif");
+					run("Duplicate...", "title=top.tif");
+				}
+				if (l < strati+1) {
+					selectWindow("PariDil.tif");
+					setSlice(l);
+					run("Duplicate...", "title=bottom.tif");
+				}
+				else {
+					selectWindow("void.tif");
+					run("Duplicate...", "title=bottom.tif");
+				}
+
+// According to the number of the cycle (pair/unpair) carries out a convolution with a square or cross kernels.
+
+				if (r == 0) {
+
+// Cross-based convolution of image i
+ 
+					selectWindow("actual.tif");
+					run("Convolve...", "text1=[0 1 0 1 1 1 0 1 0]");
+
+// Merge of convolved images with upstream and downstream images to obtain a 3D cross dilation
+
+					selectWindow("actual.tif");
+					imageCalculator("OR create", "top.tif","actual.tif");
+					selectWindow("Result of top.tif");
+					imageCalculator("OR create", "Result of top.tif","bottom.tif");
+				}
+				else {
+ 				
+// Square-based convolution of image i-1
+ 
+					selectWindow("top.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+				
+// Square-based convolution of image i
+ 
+					selectWindow("actual.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+				
+// Square-based convolution of image i+1
+ 
+					selectWindow("bottom.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+
+// Merge of convolved images in the final one
+
+					selectWindow("actual.tif");
+					imageCalculator("OR create", "top.tif","actual.tif");
+					selectWindow("Result of top.tif");
+					imageCalculator("OR create", "Result of top.tif","bottom.tif");
+				}
+	
+// Update of the output stacks by addition of the new slice
+
+				selectWindow("Result of Result of top.tif");
+				run("Select All");
+				run("Copy");
+				run("Select None");		
+
+				selectWindow("DispDil.tif");
+				setSlice(i);
+				run("Paste");
+				run("Select None");
+				
+// Closing service images	
+			
+				selectWindow("top.tif");
+				close();		
+				selectWindow("bottom.tif");
+				close();		
+				selectWindow("actual.tif");
+				close();		
+				selectWindow("Result of top.tif");
+				close();		
+				selectWindow("Result of Result of top.tif");
+				close();		
+			}
+
+// Swap of service stacks. PariDil becomes Scarto, DispDil becomes PariDil and Scarto is discarded
+
+			selectWindow("PariDil.tif");
+			rename("Scarto");		
+			selectWindow("DispDil.tif");
+			rename("PariDil.tif");		
+			newImage("DispDil.tif", "8-bit", DimX, DimY, strati);			
+			selectWindow("Scarto");
+    			close();
+
+// End of operation for a For cycle
+ 
+		}
+
+// Cleanup of void images and temporary directories
+
+		selectWindow("void.tif");
+		run("Select All");
+		run("Clear");
+		run("Select None");
+						
+		selectWindow("DispDil.tif");
+		close();
+		newImage("DispDil.tif", "8-bit", DimX, DimY, strati);
+		run("Invert LUT");
+		run("Invert", "stack");
+
+// 8-bit Value inversion of the entire stack in order to perform the erosion step
+
+		selectWindow("PariDil.tif");
+		run("Invert", "stack");
+
+// Cycle for volume erosion according to the required number of cycles
+
+		for (erd=0; erd<cicli; erd++) {				
+			r++;
+			if (r>1) {
+				r = 0;
+			}
+		
+// Initialization variables
+
+			V = newArray(strati+10);
+			Array.fill(V,0.00);
+
+// Cycle on every slice of the volume
+
+			for (i=1; i<strati+1; i++) {
+				showProgress(j, list.length);
+	    			h=i-1;
+	   		 	l=i+1;
+
+// Select slice i-th and duplicates/rename it
+
+				selectWindow("PariDil.tif");
+   			 	setSlice(i);
+				run("Duplicate...", "title=actual.tif");
+
+// Open images in slices i-1 e i+1. If they are outside the volume uses the created void images.
+
+				if (h > 0) {
+					selectWindow("PariDil.tif");
+					setSlice(h);
+					run("Duplicate...", "title=top.tif");
+				}
+				else {
+					selectWindow("void.tif");
+					run("Duplicate...", "title=top.tif");
+				}
+				if (l < strati+1) {
+					selectWindow("PariDil.tif");
+					setSlice(l);
+					run("Duplicate...", "title=bottom.tif");
+				}
+				else {
+					selectWindow("void.tif");
+					run("Duplicate...", "title=bottom.tif");
+				}
+
+// According to the number of the cycle (pair/unpair) carries out a convolution with a square or cross kernels.
+
+				if (r == 0) {
+
+// Cross-based convolution of image i
+ 
+					selectWindow("actual.tif");
+					run("Convolve...", "text1=[0 1 0 1 1 1 0 1 0]");
+
+// Merge of convolved images with upstream and downstream images to obtain a 3D cross dilation
+
+					selectWindow("actual.tif");
+					imageCalculator("OR create", "top.tif","actual.tif");
+					selectWindow("Result of top.tif");
+					imageCalculator("OR create", "Result of top.tif","bottom.tif");
+				}
+				else {
+ 				
+// Square-based convolution of image i-1
+ 
+					selectWindow("top.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+				
+// Square-based convolution of image i
+ 
+					selectWindow("actual.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+				
+// Square-based convolution of image i+1
+ 
+					selectWindow("bottom.tif");
+					run("Convolve...", "text1=[1 1 1 1 1 1 1 1 1]");
+
+// Merge of convolved images in the final one
+
+					selectWindow("actual.tif");
+					imageCalculator("OR create", "top.tif","actual.tif");
+					selectWindow("Result of top.tif");
+					imageCalculator("OR create", "Result of top.tif","bottom.tif");
+				}
+	
+// Update of the output stacks by addition of the new slice
+
+				selectWindow("Result of Result of top.tif");
+				run("Select All");
+				run("Copy");
+				run("Select None");		
+				
+				selectWindow("DispDil.tif");
+				setSlice(i);
+				run("Paste");
+				run("Select None");
+				
+// Closing service images	
+			
+				selectWindow("top.tif");
+				close();		
+				selectWindow("bottom.tif");
+				close();		
+				selectWindow("actual.tif");
+				close();		
+				selectWindow("Result of top.tif");
+				close();		
+				selectWindow("Result of Result of top.tif");
+				close();		
+			}
+
+// Swap of service stacks. PariDil becomes Scarto, DispDil becomes PariDil and Scarto is discarded
+
+			selectWindow("PariDil.tif");
+			rename("Scarto");		
+			selectWindow("DispDil.tif");
+			rename("PariDil.tif");		
+			newImage("DispDil.tif", "8-bit", DimX, DimY, strati);			
+			selectWindow("Scarto");
+    			close();
+
+// End of operation for a For cycle
+ 
+		}
+
+// 8-bit value inversion to origin. The resulting image is saved in the "closed" folder
+
+		selectWindow("PariDil.tif");
+		run("Invert", "stack");
+		run("Invert LUT");
+		saveAs("tiff", dir2+"closed"+File.separator+tit);
+		close();
+
+// Cleanup of void images and temporary directories
+
+		selectWindow("void.tif");
+		close();
+		
+		selectWindow("DispDil.tif");
+		close();
+
+// End of cycle on a single volume - let's begin with an other one
+
+	}
+
+// 3D volume fillup. File opening
+
+	list = getFileList(dir2+"closed");	
+
+// Creates the "filled" directory in the selected result folder
+
+	File.makeDirectory(dir2+"filled");
+	subdir = dir2+"closed"+File.separator;
+
+	for (st=0; st<list.length; st++) {
+		open(subdir+list[st]);
+		showProgress(st/list.length);
+		inTitle = getTitle();
+
+// Assess the number of slices and if the image is not a stack aborts macro
+    
+		DimZ = nSlices();
+		if (DimZ == 1) {
+			exit("The selcted image is not a stack!");
+		}
+
+// Tests that the image stack represent a cubic volume or lower than a cube but square-based. Otherwise the macro will stop
+
+		setSlice(1);
+		DimX = getWidth();
+		DimY = getHeight();
+		DeltaL = DimX-DimZ;
+		if (DimX != DimY) {
+			exit("The volume is not square-based!");		}
+		if (DimX < DimZ) {
+			exit("Volume taller than a cube! The depth of the volume is higher than the side of the base!");
+		}
+
+// If the volume is less than a cube it is increased to a cube
+
+		if (DimX > DimZ) {
+			setSlice(DimZ);
+			for (i=0; i<DeltaL; i++) {
+				run("Add Slice");
+			}
+		}
+
+// Here generates the 3 new needed stacks
+
+		titolo = split(inTitle,".");
+		show = newArray(3);
+		filled = newArray(3);
+		show[0] = titolo[0]+"-Z.tif";
+		show[1] = titolo[0]+"-Y.tif";
+		show[2] = titolo[0]+"-X.tif";
+		filled[0] = "1";
+		filled[1] = "2";
+		filled[2] = "3";
+
+// The original volume is rotated and duplicated on the Y and X axes to get 3 stacks
+
+		selectWindow(inTitle);
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=90.0 x-angle=0.0 interpolation=linear background=0.0 adjust");
+		rename(show[1]);
+
+		selectWindow(inTitle);
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=0.0 x-angle=90.0 interpolation=linear background=0.0 adjust");
+		rename(show[2]);
+
+// Now we fill the holes in the 3 stacks and rotate back the rotated stacks by 90¡ in order to reference filled stacks to a similar orientation.
+
+		selectWindow(inTitle);
+		run("Fill Holes", "stack");
+		rename(filled[0]);
+
+		selectWindow(show[1]);
+		run("Fill Holes", "stack");
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=-90.0 x-angle=0.0 interpolation=linear background=0.0 adjust");
+		rename(filled[1]);
+
+		selectWindow(show[2]);
+		run("Fill Holes", "stack");
+		run("TransformJ Rotate", "z-angle=0.0 y-angle=0.0 x-angle=-90.0 interpolation=linear background=0.0 adjust");
+		rename(filled[2]);
+
+// To end the 3 stacks are combined into a resulting one
+
+		imageCalculator("OR create stack", filled[0], filled[1]);
+		imageCalculator("OR create stack", "Result of "+ filled[0], filled[2]);
+		selectWindow("Result of Result of "+ filled[0]);
+
+// If necessary we discard the slices to obtain a cube
+
+		if (DeltaL>0) {
+			setSlice(DimX);		
+			for (i=0; i<DeltaL; i++) {
+				run("Delete Slice");
+			}			
+		}
+
+// The last step closes holes eventually created by the previous fillups
+
+		run("Fill Holes", "stack");
+
+// Here we save the resulting stack
+
+		save(dir2+"filled"+File.separator+inTitle);
+		close();
+
+// Cleanup of service images
+
+		selectWindow("Result of "+filled[0]);
+		close();
+
+		for (i=1; i<3; i++) {
+			selectWindow(show[i]);
+			close();
+ 		}
+
+		for (i=0; i<3; i++) {
+			selectWindow(filled[i]);
+			close();
+		}
+
+// End of a For cycle
+
+	}
+
+// Filtering of filled areas larger than the selected threshold
+
+	list = getFileList(dir2+"filled");	
+
+// Creates the "Final" directory in the selected result folder
+
+	File.makeDirectory(dir2+"Final");
+	subdiruno = dir2+"filled"+File.separator;
+	subdirdue = dir2+"closed"+File.separator;
+
+	run("Set Measurements...", "area redirect=None decimal=0");
+			
+	for (st=0; st<list.length; st++) {
+		open(subdiruno+list[st]);
+		showProgress(st/list.length);
+		oneTitle = getTitle();
+		rename("Riempita");
+
+		open(subdirdue+list[st]);
+		dueTitle = getTitle();
+		rename("Vuota");
+
+		if (oneTitle == dueTitle) {
+			selectWindow("Riempita");
+			imageCalculator("Subtract create stack", "Riempita","Vuota");
+			selectWindow("Result of Riempita");
+			run("Analyze Particles...", "size=0-"+suplim+" circularity=0.00-1.00 show=Masks clear stack");
+			imageCalculator("Add stack", "Vuota","Mask of Result of Riempita");
+	
+			selectWindow("Vuota");
+			save(dir2+"Final"+File.separator+oneTitle);
+			close();
+			selectWindow("Result of Riempita");
+			close();
+			selectWindow("Mask of Result of Riempita");
+			close();
+		}
+		else {
+			selectWindow("Vuota");
+			close();
+		}
+		selectWindow("Riempita");
+		close();
+	}
+
+// End of the Macro
+	
+	setBatchMode(false);
+
+	showMessage("End of Elaboration");
+}

@@ -1,0 +1,163 @@
+/*
+ImageJ script for constructing partial angioarchitectures by cumulating sequential classes of vessels with decreasing calibers.
+
+Version history:
+v. 0.1.0 released 26/05/2011
+v. 0.2.0 released 29/08/2011
+v. 0.3.0 released 08/01/2019
+
+This script sums passband images which SHOULD be organized in a 2-level nested folder and named in order to be listed from lower to higher calibers.  
+
+*/
+
+macro "CreaSezCumulate" {accumula();}
+
+function accumula() {
+	requires("1.42l");
+
+// Parameters setup through a dialog interface 
+
+	listaserie = newArray("1.6","1.7","1.8","1.9","2.0");
+	Dialog.create("Preferences");
+	Dialog.addMessage("Progressive reconstruction of Vascular Trees");
+	Dialog.addMessage("\n");
+	Dialog.addMessage("The classifying thresholds are based on ratio: ")+Dialog.addChoice("          ",listaserie)+"\n";
+	Dialog.show();
+
+	if(isOpen("Log")){
+		selectWindow("Log");
+		run("Close");
+	}
+	scelta = Dialog.getChoice();
+
+// Setting time and date of execution
+
+	getDateAndTime(year, month, week, day, hour, minu, sec, msec);
+	mese = month+1;
+	
+	setBatchMode(true);
+
+// Choosing folder grouping folders with caliber-classified images ready to be combined.
+
+	showMessage("Select folder grouping folders with images to be combined");
+	dir1 = getDirectory("Select");
+
+	list = getFileList(dir1);
+
+// Choosing the folder for saving combined images.
+
+	showMessage("Where should I save combined images?");
+	dir2 = getDirectory("Select");
+
+// Start of cycle on all folders
+
+	for (st=0; st<list.length; st++) {
+		subdir = dir1+list[st];
+	 	subdirtit = File.getName(subdir);
+
+// Next, the macro creates and save the combined classes of vessels
+
+// Creation of folder to group filtered images
+
+		File.makeDirectory(dir2+"SC"+scelta+subdirtit);
+
+// Now we cycle through every image of all nested folders
+
+		sublist = getFileList(subdir);	
+
+		titre = newArray(2);
+		if(scelta=="2.0"){
+			soglia = newArray("0-4","0-8","0-16","0-32","0-64","0-128","0-256");
+			topdown = newArray("4-256","8-256","16-256","32-256","64-256","128-256");
+		}
+		else{
+			if(scelta=="1.9"){
+				soglia = newArray("0-4","0-8","0-14","0-27","0-52","0-99","0-188");
+				topdown = newArray("4-188","8-188","14-188","27-188","52-188","99-188");
+			}
+			else{
+				if(scelta=="1.8"){
+					soglia = newArray("0-4","0-7","0-13","0-23","0-42","0-76","0-136");
+					topdown = newArray("4-136","7-136","13-136","23-136","42-136","76-136");
+				}
+				else{
+					if(scelta=="1.7"){
+						soglia = newArray("0-4","0-7","0-12","0-20","0-33","0-57","0-97");
+						topdown = newArray("4-97","7-97","12-97","20-97","33-97","57-97");
+					}
+					else{
+						if(scelta=="1.6"){
+							soglia = newArray("0-4","0-6","0-10","0-16","0-26","0-42","0-68");
+							topdown = newArray("4-68","6-68","10-68","16-68","26-68","42-68");
+						}
+					}
+				}
+			}
+		}
+		
+
+// We create a void image and we open the first image
+
+		open(subdir+sublist[0]);
+
+// we want to be sure it is void, so we clean it
+
+		run("Select All");
+		run("Clear", "stack");
+
+// we rename it 
+
+		rename("void");
+		titre[0] = getTitle();
+
+// then, for all images of the first subfolder 
+
+		for (i=0; i<sublist.length; i++) {
+
+// First step: we create and save Small-Up images summing increasing classes of caliber-classified vessels to an intermediate image - the void image - which is saved after every step, until it groups ALL classes of vessels (full image)
+
+			open(subdir+sublist[i]);
+			titre[1] = getTitle();
+			imageCalculator("Add stack", titre[0], titre[1]);
+
+			selectWindow(titre[0]);
+			save(dir2+"SC"+scelta+subdirtit+File.separator+"BU_"+soglia[i]+".tif");
+			selectWindow(titre[1]);
+			close();
+		}
+
+// Second step: we create and save Large-down images subtracting increasing classes of caliber-classified vessels from the intermediate image - the full image - which is saved after every step, until it show only the largest class of caliber classified vessels
+
+		for (i=0; i<sublist.length-1; i++) {
+			open(subdir+sublist[i]);
+			titre[1] = getTitle();
+			
+			imageCalculator("Subtract stack", titre[0], titre[1]);
+
+			selectWindow(titre[0]);
+			save(dir2+"SC"+scelta+subdirtit+File.separator+"TD_"+topdown[i]+".tif");
+			selectWindow(titre[1]);
+			close();
+		}
+
+// Now we close the “void” image.
+
+		selectWindow(titre[0]);
+		close();
+
+// Third step, we delete Small-up images and rename the stack containing only large vessels 
+
+		for(i=0;i<6;i++){
+			File.delete(dir2+"SC"+scelta+subdirtit+File.separator+"BU_"+soglia[i]+".tif");
+		}
+
+File.rename(dir2+"SC"+scelta+subdirtit+File.separator+"BU_"+soglia[6]+".tif",dir2+"SC"+scelta+subdirtit+File.separator+"TD_"+soglia[6]+".tif");
+
+	}
+
+// and we stop the script
+
+	setBatchMode(false);
+
+	showMessage(“End of Elaboration”);
+}
