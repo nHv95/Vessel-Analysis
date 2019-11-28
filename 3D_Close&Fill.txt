@@ -26,9 +26,9 @@ function halo() {
 // Parameter setup by dialog 
 
 	Dialog.create("Setup");
-	Dialog.addNumber("Number of dilation-\t \nerosion cycles: ", cicli);
-	Dialog.addMessage("\n")                                                         ;
-	Dialog.addNumber("                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             \nMax limit of filled areas: ", suplim);
+	Dialog.addNumber("Number of dilation-erosion cycles: ", cicli);
+	Dialog.addMessage("\n\n");
+	Dialog.addNumber("Max limit of filled areas: ", suplim);
 	Dialog.show();
 	cicli = Dialog.getNumber();
 	suplim = Dialog.getNumber();
@@ -472,7 +472,7 @@ function halo() {
 		run("TransformJ Rotate", "z-angle=0.0 y-angle=0.0 x-angle=90.0 interpolation=linear background=0.0 adjust");
 		rename(show[2]);
 
-// Now we fill the holes in the 3 stacks and rotate back the rotated stacks by 90ก in order to reference filled stacks to a similar orientation.
+// Now we fill the holes in the 3 stacks and rotate back the rotated stacks by 90ยก in order to reference filled stacks to a similar orientation.
 
 		selectWindow(inTitle);
 		run("Fill Holes", "stack");
