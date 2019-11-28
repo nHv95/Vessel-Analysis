@@ -278,6 +278,13 @@ function volfilter() {
 		close();
 
 	}
+	
+// Removal of folder R!
+
+	for(sg=0; sg<prosoglia.length; sg++) {
+		File.delete(dir2+titolo[0]+File.separator+"R"+prosoglia[sg]+inTitle);
+	}
+	File.delete(dir2+titolo[0]);
 
 // End of the routine
 
